@@ -1,0 +1,12 @@
+{
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "target": "ES2020",
+    "strict": true,
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "declaration": true
+  }
+}
