@@ -11,9 +11,15 @@ env:
 jobs:
   docs:
     runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -30,6 +36,11 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v3
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: "./docs"
 
       - name: Deploy to GitHub Pages
         id: deployment
