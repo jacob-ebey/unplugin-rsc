@@ -22,12 +22,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: TSDoc Action
-        uses: erikyo/tsdoc-action@v1
-        with:
-          entryPoints: ./src/index.ts
-          output_dir: ./docs
-          front_page: README.md
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate docs
+        run: npm run docs
 
       - name: Setup Pages
         uses: actions/configure-pages@v3

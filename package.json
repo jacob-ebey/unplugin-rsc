@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "docs": "npx typedoc --out docs src/index.ts",
     "test": "vitest"
   },
   "keywords": [
@@ -30,6 +31,8 @@
   "author": "Jacob Ebey <jacob.ebey@live.com>",
   "license": "ISC",
   "devDependencies": {
+    "typedoc": "^0.25.7",
+    "typedoc-plugin-markdown": "^3.17.1",
     "typescript": "^5.3.3",
     "vite": "^5.0.11",
     "vitest": "^1.1.3"
