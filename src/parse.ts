@@ -1,10 +1,10 @@
 import * as oxy from "@oxidation-compiler/napi";
 
-import {
+import type {
   FunctionExpression,
-  type Directive,
-  type FunctionDeclaration,
-  type Program,
+  Directive,
+  FunctionDeclaration,
+  Program,
   ArrowExpression,
 } from "./ast";
 
@@ -46,7 +46,7 @@ export async function parse(
 
     if (storeIn.size > 1) {
       throw new Error(
-        `Cannot have both "use client" and "use server" directives in the same module`
+        'Cannot have both "use client" and "use server" directives in the same module'
       );
     }
 
@@ -256,7 +256,7 @@ export async function parse(
 
   if (directives.size > 1) {
     throw new Error(
-      `Cannot have both "use client" and "use server" directives in the same module`
+      'Cannot have both "use client" and "use server" directives in the same module'
     );
   }
 
