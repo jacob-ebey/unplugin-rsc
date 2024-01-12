@@ -4,11 +4,13 @@ import { createFilter, type FilterPattern } from "@rollup/pluginutils";
 import { parse } from "./parse";
 import { replaceExports, wrapExports } from "./transform";
 
+export type Directive = "use client" | "use server";
+
 interface BaseOptions {
   include?: FilterPattern;
   exclude?: FilterPattern | undefined;
-  transformModuleId(id: string): string;
-  onModuleFound?(id: string, type: "use client" | "use server"): void;
+  transformModuleId(id: string, type: Directive): string;
+  onModuleFound?(id: string, type: Directive): void;
 }
 
 export interface Runtime {
@@ -47,7 +49,7 @@ export const rscServerPlugin = createUnplugin<RSCServerPluginOptions>(
             code,
             parsed,
             useServerRuntime,
-            transformModuleId(id)
+            transformModuleId(id, parsed.directive)
           );
         }
 
@@ -57,7 +59,7 @@ export const rscServerPlugin = createUnplugin<RSCServerPluginOptions>(
           return replaceExports(
             parsed,
             useClientRuntime,
-            transformModuleId(id)
+            transformModuleId(id, parsed.directive)
           );
         }
 
@@ -95,7 +97,7 @@ export const rscClientPlugin = createUnplugin<RSCClientPluginOptions>(
           return replaceExports(
             parsed,
             useServerRuntime,
-            transformModuleId(id)
+            transformModuleId(id, parsed.directive)
           );
         }
 
