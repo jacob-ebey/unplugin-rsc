@@ -83,7 +83,7 @@ export interface VariableDeclarator {
 }
 
 export type Expression = PotentiallyUnknown<
-  ArrowExpression | FunctionExpression | AssignmentExpression
+  ArrowExpression | FunctionExpression | AssignmentExpression | CallExpression
 >;
 
 export interface ArrowExpression {
@@ -108,6 +108,11 @@ export interface StaticMemberExpression {
   type: "StaticMemberExpression";
   object: IdentifierReference;
   property: IdentifierName;
+}
+
+export interface CallExpression {
+  type: "CallExpression";
+  callee: PotentiallyUnknown<StaticMemberExpression | IdentifierReference>;
 }
 
 export interface IdentifierReference {

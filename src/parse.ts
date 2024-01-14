@@ -138,6 +138,36 @@ export async function parse(
                   }
                   break;
                 }
+                case "CallExpression": {
+                  switch (declaration.init.callee.type) {
+                    case "IdentifierReference": {
+                      if (declaration.init.callee.name === "forwardRef") {
+                        annotatedFunctions.add(declaration.id.kind.name);
+                        potentialExports.set(
+                          declaration.id.kind.name,
+                          declaration.id.kind.name
+                        );
+                      }
+                      break;
+                    }
+                    case "StaticMemberExpression": {
+                      if (
+                        declaration.init.callee.object.type ===
+                          "IdentifierReference" &&
+                        declaration.init.callee.object.name === "React" &&
+                        declaration.init.callee.property.type ===
+                          "IdentifierName" &&
+                        declaration.init.callee.property.name === "forwardRef"
+                      ) {
+                        annotatedFunctions.add(declaration.id.kind.name);
+                        potentialExports.set(
+                          declaration.id.kind.name,
+                          declaration.id.kind.name
+                        );
+                      }
+                    }
+                  }
+                }
               }
             }
             break;
@@ -209,6 +239,36 @@ export async function parse(
                 annotatedExports.set(declaration.id.kind.name, localName);
               }
               break;
+            }
+            case "CallExpression": {
+              switch (declaration.init.callee.type) {
+                case "IdentifierReference": {
+                  if (declaration.init.callee.name === "forwardRef") {
+                    annotatedFunctions.add(declaration.id.kind.name);
+                    potentialExports.set(
+                      declaration.id.kind.name,
+                      declaration.id.kind.name
+                    );
+                  }
+                  break;
+                }
+                case "StaticMemberExpression": {
+                  if (
+                    declaration.init.callee.object.type ===
+                      "IdentifierReference" &&
+                    declaration.init.callee.object.name === "React" &&
+                    declaration.init.callee.property.type ===
+                      "IdentifierName" &&
+                    declaration.init.callee.property.name === "forwardRef"
+                  ) {
+                    annotatedFunctions.add(declaration.id.kind.name);
+                    potentialExports.set(
+                      declaration.id.kind.name,
+                      declaration.id.kind.name
+                    );
+                  }
+                }
+              }
             }
           }
         }

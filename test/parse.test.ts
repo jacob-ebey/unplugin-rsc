@@ -215,7 +215,7 @@ test("parses exports for a program with a directive at the function scope for co
   });
 });
 
-test.only("parses tsx exports", async () => {
+test("parses tsx exports", async () => {
   const result = await parse(
     `
       "use client";
@@ -276,5 +276,87 @@ test.only("parses tsx exports", async () => {
     Avatar: "Avatar",
     AvatarImage: "AvatarImage",
     AvatarFallback: "AvatarFallback",
+  });
+});
+
+test("parses React.forwardRef", async () => {
+  const result = await parse(
+    `
+      "use client";
+
+      import * as React from "react";
+      import { forwardRef } from "react";
+      import { CheckIcon } from "@radix-ui/react-icons";
+      import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
+      
+      import { cn } from "@/lib/utils";
+      
+      const RadioGroup = React.forwardRef<
+        React.ElementRef<typeof RadioGroupPrimitive.Root>,
+        React.ComponentPropsWithoutRef<typeof RadioGroupPrimitive.Root>
+      >(({ className, ...props }, ref) => {
+        return (
+          <RadioGroupPrimitive.Root
+            className={cn("grid gap-2", className)}
+            {...props}
+            ref={ref}
+          />
+        );
+      });
+      RadioGroup.displayName = RadioGroupPrimitive.Root.displayName;
+      
+      const RadioGroupItem = forwardRef<
+        React.ElementRef<typeof RadioGroupPrimitive.Item>,
+        React.ComponentPropsWithoutRef<typeof RadioGroupPrimitive.Item>
+      >(({ className, ...props }, ref) => {
+        return (
+          <RadioGroupPrimitive.Item
+            ref={ref}
+            className={cn(
+              "aspect-square h-4 w-4 rounded-full border border-primary text-primary shadow focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+              className,
+            )}
+            {...props}
+          >
+            <RadioGroupPrimitive.Indicator className="flex items-center justify-center">
+              <CheckIcon className="h-3.5 w-3.5 fill-primary" />
+            </RadioGroupPrimitive.Indicator>
+          </RadioGroupPrimitive.Item>
+        );
+      });
+      RadioGroupItem.displayName = RadioGroupPrimitive.Item.displayName;
+
+      export const RadioGroupItem2 = forwardRef<
+        React.ElementRef<typeof RadioGroupPrimitive.Item>,
+        React.ComponentPropsWithoutRef<typeof RadioGroupPrimitive.Item>
+      >(({ className, ...props }, ref) => {
+        return (
+          <RadioGroupPrimitive.Item
+            ref={ref}
+            className={cn(
+              "aspect-square h-4 w-4 rounded-full border border-primary text-primary shadow focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+              className,
+            )}
+            {...props}
+          >
+            <RadioGroupPrimitive.Indicator className="flex items-center justify-center">
+              <CheckIcon className="h-3.5 w-3.5 fill-primary" />
+            </RadioGroupPrimitive.Indicator>
+          </RadioGroupPrimitive.Item>
+        );
+      });
+      
+      export { RadioGroup, RadioGroupItem };    
+    `,
+    "test.ts"
+  );
+  if (!result.directive) {
+    throw new Error("Expected a directive");
+  }
+  expect(result.directive).toBe("use client");
+  expect(Object.fromEntries(result.exports?.entries() ?? [])).toEqual({
+    RadioGroup: "RadioGroup",
+    RadioGroupItem: "RadioGroupItem",
+    RadioGroupItem2: "RadioGroupItem2",
   });
 });
