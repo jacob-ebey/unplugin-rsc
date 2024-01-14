@@ -1,4 +1,5 @@
 import * as oxy from "@oxidation-compiler/napi";
+import * as esbuild from "esbuild";
 
 import type {
   FunctionExpression,
@@ -21,6 +22,13 @@ export async function parse(
 ): Promise<ParseResult> {
   if (!source.match(/["']use (server|client)["']/)) {
     return { directive: false };
+  }
+
+  if (filePath.match(/\.tsx?$/) || filePath.endsWith("x")) {
+    const transformed = await esbuild.transform(source, {
+      loader: filePath.endsWith("x") ? "ts" : "tsx",
+    });
+    source = transformed.code;
   }
 
   const parseResult = await oxy.parseAsync(source, {
@@ -183,10 +191,13 @@ export async function parse(
         for (const declaration of node.declarations) {
           switch (declaration.init?.type) {
             case "ArrowExpression": {
-              processArrowExpression(
+              const localName = processArrowExpression(
                 declaration.init,
                 declaration.id.kind.name
               );
+              if (localName) {
+                potentialExports.set(localName, localName);
+              }
               break;
             }
             case "FunctionExpression": {
