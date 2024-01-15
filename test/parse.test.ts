@@ -48,10 +48,14 @@ test("parses all exports for a program with a directive at the module scope", as
     a: "a",
     b: "b",
     c: "c",
-    d: "d1",
+    d: "d",
     e: "e",
     f: "f",
     default: "b",
+    g: "g",
+    h: "g",
+    i: "i",
+    j: "j",
   });
 });
 
@@ -147,7 +151,7 @@ test("parses all exports for a program with a directive at the module scope for 
       exports.j = "";
       function k() {}
     `,
-    "test.ts"
+    "test.cjs"
   );
   if (!result.directive) {
     throw new Error("Expected a directive");
@@ -156,8 +160,10 @@ test("parses all exports for a program with a directive at the module scope for 
   expect(Object.fromEntries(result.exports?.entries() ?? [])).toEqual({
     a: "a",
     b: "b",
-    d: "d1",
+    d: "d",
     default: "b",
+    "g": "g",
+    "h": "g",
   });
 });
 
@@ -201,7 +207,7 @@ test("parses exports for a program with a directive at the function scope for co
       exports.j = "";
       function k() {}
     `,
-    "test.ts"
+    "test.cjs"
   );
   if (!result.directive) {
     throw new Error("Expected a directive");

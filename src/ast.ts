@@ -1,4 +1,4 @@
-export type PotentiallyUnknown<T> = T | { type: "___UNKNOWN___" };
+export type PotentiallyUnknown<T> = T | { type: never };
 
 export interface Program {
   type: "Program";
@@ -31,7 +31,7 @@ export interface ExportNamedDeclaration {
 
 export interface ExportDefaultDeclaration {
   type: "ExportDefaultDeclaration";
-  declaration: PotentiallyUnknown<Declaration> | IdentifierReference;
+  declaration: PotentiallyUnknown<FunctionDeclaration | IdentifierReference>;
   exported: IdentifierName;
 }
 
@@ -79,7 +79,7 @@ export interface BindingPattern {
 export interface VariableDeclarator {
   type: "VariableDeclarator";
   id: BindingPattern;
-  init: PotentiallyUnknown<Expression>;
+  init: PotentiallyUnknown<Expression | IdentifierReference>;
 }
 
 export type Expression = PotentiallyUnknown<

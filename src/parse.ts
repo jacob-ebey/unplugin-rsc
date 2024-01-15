@@ -3,10 +3,10 @@ import * as esbuild from "esbuild";
 
 import type {
   FunctionExpression,
-  Directive,
   FunctionDeclaration,
   Program,
-  ArrowExpression,
+  VariableDeclarator,
+  ExpressionStatement,
 } from "./ast";
 
 export type DirectiveParseResult = {
@@ -20,16 +20,36 @@ export async function parse(
   source: string,
   filePath: string
 ): Promise<ParseResult> {
-  if (!source.match(/["']use (server|client)["']/)) {
+  let directiveMatches = Array.from(
+    source.matchAll(/["']use (server|client)["']/g)
+  );
+  if (!directiveMatches.length) return { directive: false };
+
+  let format: null | "cjs" | "esm" = null;
+  if (source.match(/\bexport\b/g)) format = "esm";
+  else if (source.match(/\bexports\./g)) format = "cjs";
+
+  if (!format) {
     return { directive: false };
   }
 
   if (filePath.match(/\.tsx?$/) || filePath.endsWith("x")) {
     const transformed = await esbuild.transform(source, {
       loader: filePath.endsWith("x") ? "ts" : "tsx",
+      minify: false,
+      format,
+      minifyIdentifiers: false,
+      minifySyntax: false,
+      minifyWhitespace: false,
+      keepNames: true,
     });
     source = transformed.code;
   }
+
+  directiveMatches = Array.from(
+    source.matchAll(/["']use (server|client)["']/g)
+  );
+  if (!directiveMatches.length) return { directive: false };
 
   const parseResult = await oxy.parseAsync(source, {
     sourceFilename: filePath,
@@ -38,268 +58,161 @@ export async function parse(
 
   const directives = new Set<"use client" | "use server">();
 
-  const processDirectives = (
-    dirs: Directive[] | undefined,
-    storeIn: Set<"use client" | "use server">
-  ) => {
-    for (const directive of dirs ?? []) {
-      if (
-        directive.directive === "use client" ||
-        directive.directive === "use server"
-      ) {
-        storeIn.add(directive.directive);
-        directives.add(directive.directive);
-      }
-    }
-
-    if (storeIn.size > 1) {
-      throw new Error(
-        'Cannot have both "use client" and "use server" directives in the same module'
-      );
-    }
-
-    return storeIn.size == 1;
-  };
-
-  const directivesAtProgramScope = new Set<"use client" | "use server">();
-  processDirectives(program.directives, directivesAtProgramScope);
-
-  const annotatedFunctions = new Set<string>();
-  const aliasedExports = new Map<string, string>();
-  const potentialExports = new Map<string, string>();
   const annotatedExports = new Map<string, string>();
 
-  const processFunctionDeclaration = (declaration: FunctionDeclaration) => {
-    const localName = declaration.id?.name;
-    if (!localName) return;
-    const localDirectives = new Set(directivesAtProgramScope);
-    if (processDirectives(declaration.body?.directives, localDirectives)) {
-      annotatedFunctions.add(localName);
+  const parseDirective = (directive: any) => {
+    if (directive.parent?.type !== "FunctionBody") {
+      return;
     }
-    return localName;
+
+    const names = [];
+    let current = directive.parent.parent;
+    while (current) {
+      switch (current.type) {
+        case "FunctionDeclaration": {
+          const dec = current as FunctionDeclaration;
+          if (dec.id?.name) {
+            names.push(current.id.name);
+          }
+          break;
+        }
+        case "FunctionExpression": {
+          const exp = current as FunctionExpression;
+          if (exp.id?.name) {
+            names.push(current.id.name);
+          }
+          break;
+        }
+        case "VariableDeclarator": {
+          const dec = current as VariableDeclarator;
+          if (dec.id.kind.name) {
+            names.push(dec.id.kind.name);
+          }
+          break;
+        }
+      }
+      current = current.parent;
+    }
+
+    if (!names.length) return;
+
+    return {
+      names,
+      directive: directive.directive,
+    };
   };
 
-  const processFunctionExpression = (
-    expression: FunctionExpression,
-    assignedTo?: string
-  ) => {
-    const localName = expression.id?.name ?? assignedTo;
-    if (!localName) return;
-    const localDirectives = new Set(directivesAtProgramScope);
-    if (processDirectives(expression.body?.directives, localDirectives)) {
-      annotatedFunctions.add(localName);
+  let allExports = false;
+  const annotatedFunctions = new Set<string>();
+  const baseNames = new Map<string, string>();
+
+  const getBaseName = (name: string): string => {
+    const next = baseNames.get(name);
+    if (next) {
+      return getBaseName(next);
     }
-    return localName;
+    return name;
   };
 
-  const processArrowExpression = (
-    expression: ArrowExpression,
-    localName: string
-  ) => {
-    if (!localName) return;
-    const localDirectives = new Set(directivesAtProgramScope);
-    if (processDirectives(expression.body?.directives, localDirectives)) {
-      annotatedFunctions.add(localName);
+  for (const directiveMatch of directiveMatches) {
+    const index = directiveMatch.index;
+    if (typeof index !== "number") continue;
+    let foundNode = findNodeAtPosition(program, {
+      start: index,
+      end: index + directiveMatch[0].length,
+    });
+    foundNode = foundNode?.parent;
+    if (foundNode?.type !== "Directive") continue;
+    directives.add(foundNode.directive as "use client" | "use server");
+
+    switch (foundNode.parent.type) {
+      case "Program":
+        allExports = true;
+        break;
+      default:
+        const parsed = parseDirective(foundNode);
+        if (!parsed) break;
+        let i = 0;
+        for (const name of parsed.names) {
+          if (i++ > 0) {
+            baseNames.set(name, parsed.names[0]);
+          }
+          annotatedFunctions.add(name);
+        }
+        break;
     }
-    return localName;
-  };
+  }
 
   for (const node of program.body ?? []) {
     switch (node.type) {
-      case "ExportNamedDeclaration": {
-        switch (node.declaration?.type) {
-          case "FunctionDeclaration": {
-            const localName = processFunctionDeclaration(node.declaration);
-            if (localName) {
-              annotatedExports.set(localName, localName);
-            }
-            break;
-          }
-          case "VariableDeclaration": {
-            for (const declaration of node.declaration.declarations) {
-              switch (declaration.init?.type) {
-                case "ArrowExpression": {
-                  const localName = processArrowExpression(
-                    declaration.init,
-                    declaration.id.kind.name
-                  );
-                  if (localName) {
-                    potentialExports.set(declaration.id.kind.name, localName);
-                  }
-                  break;
-                }
-                case "FunctionExpression": {
-                  const localName = processFunctionExpression(
-                    declaration.init,
-                    declaration.id.kind.name
-                  );
-                  if (localName) {
-                    potentialExports.set(declaration.id.kind.name, localName);
-                  }
-                  break;
-                }
-                case "CallExpression": {
-                  switch (declaration.init.callee.type) {
-                    case "IdentifierReference": {
-                      if (declaration.init.callee.name === "forwardRef") {
-                        annotatedFunctions.add(declaration.id.kind.name);
-                        potentialExports.set(
-                          declaration.id.kind.name,
-                          declaration.id.kind.name
-                        );
-                      }
-                      break;
-                    }
-                    case "StaticMemberExpression": {
-                      if (
-                        declaration.init.callee.object.type ===
-                          "IdentifierReference" &&
-                        declaration.init.callee.object.name === "React" &&
-                        declaration.init.callee.property.type ===
-                          "IdentifierName" &&
-                        declaration.init.callee.property.name === "forwardRef"
-                      ) {
-                        annotatedFunctions.add(declaration.id.kind.name);
-                        potentialExports.set(
-                          declaration.id.kind.name,
-                          declaration.id.kind.name
-                        );
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            break;
-          }
-        }
-
-        for (const specifier of node.specifiers ?? []) {
-          potentialExports.set(specifier.exported.name, specifier.local.name);
-          break;
+      case "VariableDeclaration": {
+        for (const declaration of node.declarations ?? []) {
+          if (declaration.init.type !== "IdentifierReference") continue;
+          baseNames.set(declaration.id.kind.name, declaration.init.name);
         }
         break;
       }
       case "ExportDefaultDeclaration": {
-        switch (node.declaration.type) {
+        switch (node.declaration?.type) {
           case "FunctionDeclaration": {
-            const localName = processFunctionDeclaration(node.declaration);
-            if (localName) {
-              aliasedExports.set(node.exported.name, localName);
-            }
-            break;
-          }
-          case "VariableDeclaration": {
-            for (const declaration of node.declaration.declarations) {
-              switch (declaration.init?.type) {
-                case "FunctionExpression": {
-                  const localName = processFunctionExpression(
-                    declaration.init,
-                    declaration.id.kind.name
-                  );
-                  if (localName) {
-                    annotatedExports.set(node.exported.name, localName);
-                  }
-                  break;
-                }
-              }
+            const baseName = getBaseName(node.declaration.id?.name ?? "");
+            if (baseName && (allExports || annotatedFunctions.has(baseName))) {
+              annotatedExports.set("default", baseName);
             }
             break;
           }
           case "IdentifierReference": {
-            potentialExports.set(node.exported.name, node.declaration.name);
+            const baseName = getBaseName(node.declaration.name);
+            if (baseName && (allExports || annotatedFunctions.has(baseName))) {
+              annotatedExports.set("default", getBaseName(baseName));
+            }
             break;
           }
         }
         break;
       }
-      case "FunctionDeclaration": {
-        processFunctionDeclaration(node);
-        break;
-      }
-      case "VariableDeclaration": {
-        for (const declaration of node.declarations) {
-          switch (declaration.init?.type) {
-            case "ArrowExpression": {
-              const localName = processArrowExpression(
-                declaration.init,
-                declaration.id.kind.name
-              );
-              if (localName) {
-                potentialExports.set(localName, localName);
-              }
-              break;
-            }
-            case "FunctionExpression": {
-              const localName = processFunctionExpression(
-                declaration.init,
-                declaration.id.kind.name
-              );
-              if (localName) {
-                annotatedExports.set(declaration.id.kind.name, localName);
-              }
-              break;
-            }
-            case "CallExpression": {
-              switch (declaration.init.callee.type) {
-                case "IdentifierReference": {
-                  if (declaration.init.callee.name === "forwardRef") {
-                    annotatedFunctions.add(declaration.id.kind.name);
-                    potentialExports.set(
-                      declaration.id.kind.name,
-                      declaration.id.kind.name
-                    );
-                  }
-                  break;
-                }
-                case "StaticMemberExpression": {
-                  if (
-                    declaration.init.callee.object.type ===
-                      "IdentifierReference" &&
-                    declaration.init.callee.object.name === "React" &&
-                    declaration.init.callee.property.type ===
-                      "IdentifierName" &&
-                    declaration.init.callee.property.name === "forwardRef"
-                  ) {
-                    annotatedFunctions.add(declaration.id.kind.name);
-                    potentialExports.set(
-                      declaration.id.kind.name,
-                      declaration.id.kind.name
-                    );
-                  }
-                }
-              }
-            }
+      case "ExportNamedDeclaration": {
+        for (const specifier of node.specifiers ?? []) {
+          const baseName = getBaseName(specifier.local.name);
+          if (baseName && (allExports || annotatedFunctions.has(baseName))) {
+            annotatedExports.set(specifier.exported.name, baseName);
           }
         }
-        break;
       }
       case "ExpressionStatement": {
+        const stmt = node as ExpressionStatement;
         if (
-          node.expression.type === "AssignmentExpression" &&
-          node.expression.left.type === "StaticMemberExpression" &&
-          node.expression.left.object.type === "IdentifierReference" &&
-          node.expression.left.object.name === "exports" &&
-          node.expression.operator === "=" &&
-          node.expression.left.property.type === "IdentifierName" &&
-          node.expression.left.property.name
+          stmt.expression?.type === "AssignmentExpression" &&
+          stmt.expression.left.type === "StaticMemberExpression" &&
+          stmt.expression.left.object.type === "IdentifierReference" &&
+          stmt.expression.left.object.name === "exports" &&
+          stmt.expression.operator === "=" &&
+          stmt.expression.left.property.type === "IdentifierName" &&
+          stmt.expression.left.property.name
         ) {
-          switch (node.expression.right.type) {
+          switch (stmt.expression.right.type) {
             case "IdentifierReference": {
-              potentialExports.set(
-                node.expression.left.property.name,
-                node.expression.right.name
-              );
+              const baseName = getBaseName(stmt.expression.right.name);
+              if (
+                baseName &&
+                (allExports || annotatedFunctions.has(baseName))
+              ) {
+                annotatedExports.set(
+                  stmt.expression.left.property.name,
+                  baseName
+                );
+              }
               break;
             }
             case "FunctionExpression": {
-              const localName = processFunctionExpression(
-                node.expression.right
-              );
-              if (localName) {
+              const baseName = stmt.expression.right.id?.name ?? "";
+              if (
+                baseName &&
+                (allExports || annotatedFunctions.has(baseName))
+              ) {
                 annotatedExports.set(
-                  node.expression.left.property.name,
-                  localName
+                  stmt.expression.left.property.name,
+                  baseName
                 );
               }
               break;
@@ -310,24 +223,15 @@ export async function parse(
     }
   }
 
-  for (const [publicName, localName] of potentialExports) {
-    let baseLocalName = localName;
-    while (aliasedExports.has(baseLocalName)) {
-      baseLocalName = aliasedExports.get(baseLocalName)!;
-    }
-
-    if (annotatedFunctions.has(localName)) {
-      annotatedExports.set(publicName, localName);
-    }
-  }
-
-  if (directives.size === 0) {
-    return { directive: false };
+  if (!directives.size) {
+    return {
+      directive: false,
+    };
   }
 
   if (directives.size > 1) {
     throw new Error(
-      'Cannot have both "use client" and "use server" directives in the same module'
+      `Can not use both "use client" and "use server" in the same file`
     );
   }
 
@@ -335,4 +239,41 @@ export async function parse(
     directive: [...directives][0],
     exports: annotatedExports,
   };
+}
+
+function findNodeAtPosition(
+  ast: any,
+  position: { start: number; end: number }
+): any {
+  let resultNode: any = null;
+
+  // Recursive function to traverse the AST and find the node
+  function traverse(node: any, parent?: any) {
+    // early returns
+    if (!node || typeof node !== "object") return;
+
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        traverse(child, parent);
+      }
+      return;
+    }
+
+    if (parent && !node.parent) node.parent = parent;
+
+    if (node.start === position.start && node.end === position.end) {
+      resultNode = node;
+    }
+
+    // Traverse the node's children
+    for (const key of Object.keys(node)) {
+      if (key === "parent") continue;
+      traverse(node[key], node);
+    }
+  }
+
+  // Start traversal from the root AST node
+  traverse(ast);
+
+  return resultNode;
 }
