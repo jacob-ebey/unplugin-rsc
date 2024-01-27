@@ -20,6 +20,8 @@ export async function parse(
   source: string,
   filePath: string
 ): Promise<ParseResult> {
+  filePath = filePath?.replace(/\?.*$/, "");
+
   let directiveMatches = Array.from(
     source.matchAll(/["']use (server|client)["']/g)
   );
