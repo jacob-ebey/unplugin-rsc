@@ -1,6 +1,6 @@
 {
   "name": "unplugin-rsc",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "",
   "imports": {
     "#test-runtime": "./test-runtime.js"
