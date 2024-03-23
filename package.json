@@ -1,6 +1,6 @@
 {
   "name": "unplugin-rsc",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "",
   "imports": {
     "#test-runtime": "./test-runtime.js"
@@ -10,12 +10,6 @@
   ],
   "types": "./dist/index.d.ts",
   "main": "dist/index.js",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "require": "./dist/index.js"
-    }
-  },
   "scripts": {
     "build": "tsc",
     "docs": "npx typedoc --out docs src/index.ts",
