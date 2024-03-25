@@ -149,7 +149,7 @@ export async function parse(
     switch (node.type) {
       case "VariableDeclaration": {
         for (const declaration of node.declarations ?? []) {
-          if (declaration.init.type !== "IdentifierReference") continue;
+          if (declaration.init?.type !== "IdentifierReference") continue;
           baseNames.set(declaration.id.kind.name, declaration.init.name);
         }
         break;
