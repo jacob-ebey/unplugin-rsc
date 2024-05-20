@@ -1,108 +1,53 @@
+import type { FilterPattern } from "@rollup/pluginutils";
+import { createFilter } from "@rollup/pluginutils";
 import { createUnplugin } from "unplugin";
-import { createFilter, type FilterPattern } from "@rollup/pluginutils";
 
-import { parse } from "./parse";
-import { replaceExports, wrapExports } from "./transform";
+import type { ClientTransformOptions } from "./client-transform.js";
+import { clientTransform } from "./client-transform.js";
 
-export type Directive = "use client" | "use server";
+import type { ServerTransformOptions } from "./server-transform.js";
+import { serverTransform } from "./server-transform.js";
 
-interface BaseOptions {
+export type { ClientTransformOptions, ServerTransformOptions };
+export { clientTransform, serverTransform };
+
+export interface FilterOptions {
   include?: FilterPattern;
-  exclude?: FilterPattern | undefined;
-  transformModuleId(id: string, type: Directive): string;
-  onModuleFound?(id: string, type: Directive): void;
+  exclude?: FilterPattern;
 }
 
-export interface Runtime {
-  module: string;
-  function: string;
+export function rscClientPlugin() {
+  return createUnplugin<FilterOptions & ClientTransformOptions>(
+    ({ exclude, include, ...options }) => {
+      const filter = createFilter(include, exclude);
+
+      return {
+        name: "rsc-client",
+        transformInclude(id) {
+          return filter(id);
+        },
+        async transform(code, id) {
+          return clientTransform(code, id, options);
+        },
+      };
+    }
+  );
 }
 
-export interface RSCServerPluginOptions extends BaseOptions {
-  useClientRuntime: Runtime;
-  useServerRuntime: Runtime;
+export function rscServerPlugin() {
+  return createUnplugin<FilterOptions & ServerTransformOptions>(
+    ({ exclude, include, ...options }) => {
+      const filter = createFilter(include, exclude);
+
+      return {
+        name: "rsc-server",
+        transformInclude(id) {
+          return filter(id);
+        },
+        async transform(code, id) {
+          return serverTransform(code, id, options);
+        },
+      };
+    }
+  );
 }
-
-export const rscServerPlugin = createUnplugin<RSCServerPluginOptions>(
-  (options) => {
-    const transformModuleId = options.transformModuleId;
-    const useClientRuntime = options.useClientRuntime;
-    const useServerRuntime = options.useServerRuntime;
-    const onModuleFound = options.onModuleFound;
-    const filter = createFilter(options.include, options.exclude);
-
-    return {
-      name: "rsc-server",
-      transformInclude(id) {
-        return filter(id);
-      },
-      async transform(code, id) {
-        const parsed = await parse(code, id);
-        if (!parsed.directive) {
-          return code;
-        }
-
-        if (parsed.directive === "use server") {
-          onModuleFound?.(id, parsed.directive);
-
-          return wrapExports(
-            code,
-            parsed,
-            useServerRuntime,
-            transformModuleId(id, parsed.directive)
-          );
-        }
-
-        if (parsed.directive === "use client") {
-          onModuleFound?.(id, parsed.directive);
-
-          return replaceExports(
-            parsed,
-            useClientRuntime,
-            transformModuleId(id, parsed.directive)
-          );
-        }
-
-        return code;
-      },
-    };
-  }
-);
-
-export interface RSCClientPluginOptions extends BaseOptions {
-  useServerRuntime: Runtime;
-}
-
-export const rscClientPlugin = createUnplugin<RSCClientPluginOptions>(
-  (options) => {
-    const transformModuleId = options.transformModuleId;
-    const useServerRuntime = options.useServerRuntime;
-    const onModuleFound = options.onModuleFound;
-    const filter = createFilter(options.include, options.exclude);
-
-    return {
-      name: "rsc-client",
-      transformInclude(id) {
-        return filter(id);
-      },
-      async transform(code, id) {
-        const parsed = await parse(code, id);
-        if (!parsed.directive) {
-          return code;
-        }
-
-        if (parsed.directive === "use server") {
-          onModuleFound?.(id, parsed.directive);
-
-          return replaceExports(
-            parsed,
-            useServerRuntime,
-            transformModuleId(id, parsed.directive)
-          );
-        }
-
-        return code;
-      },
-    };
-  }
-);
