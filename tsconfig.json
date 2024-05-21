@@ -1,24 +1,24 @@
 {
-  "$schema": "http://json.schemastore.org/tsconfig",
-  "include": ["src/**/*"],
-  "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
+	"$schema": "http://json.schemastore.org/tsconfig",
+	"include": ["src/**/*"],
+	"compilerOptions": {
+		"rootDir": "src",
+		"outDir": "dist",
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
 
-    "lib": ["es2023"],
-    "target": "es2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "esModuleInterop": true,
-    "skipLibCheck": true
-  },
-  "ts-node": {
-    "transpileOnly": true,
-    "compilerOptions": {
-      "inlineSourceMap": true
-    }
-  }
+		"lib": ["es2023"],
+		"target": "es2022",
+		"module": "Node16",
+		"moduleResolution": "Node16",
+		"esModuleInterop": true,
+		"skipLibCheck": true
+	},
+	"ts-node": {
+		"transpileOnly": true,
+		"compilerOptions": {
+			"inlineSourceMap": true
+		}
+	}
 }

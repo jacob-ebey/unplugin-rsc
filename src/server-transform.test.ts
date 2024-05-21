@@ -9,30 +9,30 @@ import { serverTransform } from "./server-transform.js";
 const js = String.raw;
 
 function assertAST(actual: string, expected: string, log?: boolean) {
-  function replacer(key: string, value: unknown) {
-    if (key === "start" || key === "end" || key === "loc") {
-      return undefined;
-    }
-    return value;
-  }
+	function replacer(key: string, value: unknown) {
+		if (key === "start" || key === "end" || key === "loc") {
+			return undefined;
+		}
+		return value;
+	}
 
-  if (log) {
-    console.log("---------- ACTUAL ----------");
-    console.log(actual);
-    console.log("----------------------------");
-  }
+	if (log) {
+		console.log("---------- ACTUAL ----------");
+		console.log(actual);
+		console.log("----------------------------");
+	}
 
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(parse(actual)?.program, replacer)),
-    JSON.parse(JSON.stringify(parse(expected)?.program, replacer))
-  );
+	assert.deepEqual(
+		JSON.parse(JSON.stringify(parse(actual)?.program, replacer)),
+		JSON.parse(JSON.stringify(parse(expected)?.program, replacer)),
+	);
 }
 
 const transformOptions: ServerTransformOptions = {
-  id: (filename, directive) => `${directive}:${filename}`,
-  importClient: "$$client",
-  importFrom: "mwap/runtime/server",
-  importServer: "$$server",
+	id: (filename, directive) => `${directive}:${filename}`,
+	importClient: "$$client",
+	importFrom: "mwap/runtime/server",
+	importServer: "$$server",
 };
 
 const wrapBoundArgs = js`
@@ -50,8 +50,8 @@ const wrapBoundArgs = js`
 `;
 
 describe("use client replaces modules", () => {
-  test("with annotated exports", () => {
-    const code = js`
+	test("with annotated exports", () => {
+		const code = js`
 			"use client";
 			import { Imported } from "third-party-imported";
 			export { Exported } from "third-party-exported";
@@ -62,44 +62,44 @@ describe("use client replaces modules", () => {
 			export default function DefaultComponent() {}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-client.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-client.js", transformOptions).code,
+			js`
 				import { $$client as _$$client } from "mwap/runtime/server";
 				export const Exported = _$$client({}, "use client:use-client.js", "Exported");
 				export const Imported = _$$client({}, "use client:use-client.js", "Imported");
 				export const varDeclaration = _$$client({}, "use client:use-client.js", "varDeclaration");
 				export const functionDeclaration = _$$client({}, "use client:use-client.js", "functionDeclaration");
 				export const Component = _$$client({}, "use client:use-client.js", "Component");
-				export default _$$client({}, "use client:use-client.js", "default");				
-			`
-    );
-  });
+				export default _$$client({}, "use client:use-client.js", "default");
+			`,
+		);
+	});
 });
 
 describe("use server module arrow functions", () => {
-  test("annotates direct export arrow function", () => {
-    const code = js`
+	test("annotates direct export arrow function", () => {
+		const code = js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
 					return "Hello, " + a + "!";
 				}
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later export arrow function", () => {
-    const code = js`
+	test("annotates later export arrow function", () => {
+		const code = js`
 			"use server";
 			const sayHello = (a) => {
 				return "Hello, " + a + "!";
@@ -107,21 +107,21 @@ describe("use server module arrow functions", () => {
 			export { sayHello };
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = (a) => {
 					return "Hello, " + a + "!";
 				}
 				export { sayHello };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later rename export arrow function", () => {
-    const code = js`
+	test("annotates later rename export arrow function", () => {
+		const code = js`
 			"use server";
 			const sayHello = (a) => {
 				return "Hello, " + a + "!";
@@ -129,42 +129,42 @@ describe("use server module arrow functions", () => {
 			export { sayHello as sayHello2 };
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = (a) => {
 					return "Hello, " + a + "!";
 				}
 				export { sayHello as sayHello2 };
 				_$$server(sayHello, "use server:use-server.js", "sayHello2");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later rename export of already exported arrow function", () => {
-    const code = js`
+	test("annotates later rename export of already exported arrow function", () => {
+		const code = js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			};
 			export { sayHello as sayHello2 };
 		`;
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
 					return "Hello, " + a + "!";
 				};
 				export { sayHello as sayHello2 };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export arrow function while ignoring local", () => {
-    const code = js`
+	test("annotates direct export arrow function while ignoring local", () => {
+		const code = js`
 			"use server";
 			const sayHelloLocal = (a) => {
 				return "Hello, " + a + "!";
@@ -172,21 +172,21 @@ describe("use server module arrow functions", () => {
 			export const sayHello = (a) => sayHelloLocal(a);
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHelloLocal = (a) => {
 					return "Hello, " + a + "!";
 				};
 				export const sayHello = (a) => sayHelloLocal(a);
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export arrow function while ignoring function level", () => {
-    const code = js`
+	test("annotates direct export arrow function while ignoring function level", () => {
+		const code = js`
 			"use server";
 			export const sayHello = (a) => {
 				const sayHelloLocal = (a) => {
@@ -196,9 +196,9 @@ describe("use server module arrow functions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
 					const sayHelloLocal = (a) => {
@@ -207,34 +207,34 @@ describe("use server module arrow functions", () => {
 					return sayHelloLocal(a);
 				};
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 });
 
 describe("use server module function declarations", () => {
-  test("annotates direct export function declaration", () => {
-    const code = js`
+	test("annotates direct export function declaration", () => {
+		const code = js`
 			"use server";
 			export function sayHello(a) {
 				return "Hello, " + a + "!";
 			}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export function sayHello(a) {
 					return "Hello, " + a + "!";
 				}
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later export function declaration", () => {
-    const code = js`
+	test("annotates later export function declaration", () => {
+		const code = js`
 			"use server";
 			function sayHello(a) {
 				return "Hello, " + a + "!";
@@ -242,42 +242,42 @@ describe("use server module function declarations", () => {
 			export { sayHello };
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				function sayHello(a) {
 					return "Hello, " + a + "!";
 				}
 				export { sayHello };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later rename export of already exported function declaration", () => {
-    const code = js`
+	test("annotates later rename export of already exported function declaration", () => {
+		const code = js`
 			"use server";
 			export function sayHello(a) {
 				return "Hello, " + a + "!";
 			}
 			export { sayHello as sayHello2 };
 		`;
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export function sayHello(a) {
 					return "Hello, " + a + "!";
 				}
 				export { sayHello as sayHello2 };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export function declaration while ignoring local", () => {
-    const code = js`
+	test("annotates direct export function declaration while ignoring local", () => {
+		const code = js`
 			"use server";
 			function sayHelloLocal(a) {
 				return "Hello, " + a + "!";
@@ -287,23 +287,23 @@ describe("use server module function declarations", () => {
 			}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				function sayHelloLocal(a) {
 					return "Hello, " + a + "!";
 				}
 				export function sayHello(a) {
 					return sayHelloLocal(a);
-				}	
+				}
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export function declaration while ignoring function level", () => {
-    const code = js`
+	test("annotates direct export function declaration while ignoring function level", () => {
+		const code = js`
 			"use server";
 			export function sayHello(a) {
 				function sayHelloLocal(a) {
@@ -313,9 +313,9 @@ describe("use server module function declarations", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export function sayHello(a) {
 					function sayHelloLocal(a) {
@@ -324,12 +324,12 @@ describe("use server module function declarations", () => {
 					return sayHelloLocal(a);
 				};
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped function declaration", () => {
-    const code = js`
+	test("hoists scoped function declaration", () => {
+		const code = js`
 			import * as React from "react";
 			export function SayHello({ name }) {
 				function formAction() {
@@ -340,10 +340,9 @@ describe("use server module function declarations", () => {
 			};
 		`;
 
-    console.log(serverTransform(code, "use-server.js", transformOptions).code);
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -364,12 +363,12 @@ describe("use server module function declarations", () => {
 					);
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped function declaration with multiple arguments", () => {
-    const code = js`
+	test("hoists scoped function declaration with multiple arguments", () => {
+		const code = js`
 			import * as React from "react";
 			export function SayHello({ name, age }) {
 				function formAction() {
@@ -380,9 +379,9 @@ describe("use server module function declarations", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -403,12 +402,12 @@ describe("use server module function declarations", () => {
 					);
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped function declaration with no arguments", () => {
-    const code = js`
+	test("hoists scoped function declaration with no arguments", () => {
+		const code = js`
 			import * as React from "react";
 			export function SayHello() {
 				function formAction() {
@@ -419,9 +418,9 @@ describe("use server module function declarations", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
@@ -437,12 +436,12 @@ describe("use server module function declarations", () => {
 					var formAction = _$$INLINE_ACTION;
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists multiple scoped function declaration", () => {
-    const code = js`
+	test("hoists multiple scoped function declaration", () => {
+		const code = js`
 			import * as React from "react";
 
 			export function SayHello({ name, age }) {
@@ -473,9 +472,9 @@ describe("use server module function declarations", () => {
 			}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -507,34 +506,34 @@ describe("use server module function declarations", () => {
 						React.createElement("button", { formAction: _$$INLINE_ACTION2.bind(null, _wrapBoundArgs(() => [age])) }, "Say age")
 					);
 				}
-			`
-    );
-  });
+			`,
+		);
+	});
 });
 
 describe("use server module function expressions", () => {
-  test("annotates direct export function expression", () => {
-    const code = js`
+	test("annotates direct export function expression", () => {
+		const code = js`
 			"use server";
 			export const sayHello = function(a) {
 				return "Hello, " + a + "!";
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = function(a) {
 					return "Hello, " + a + "!";
 				};
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later export function expression", () => {
-    const code = js`
+	test("annotates later export function expression", () => {
+		const code = js`
 			"use server";
 			const sayHello = function(a) {
 				return "Hello, " + a + "!";
@@ -542,42 +541,42 @@ describe("use server module function expressions", () => {
 			export { sayHello };
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = function(a) {
 					return "Hello, " + a + "!";
 				};
 				export { sayHello };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later rename export of already exported function expression", () => {
-    const code = js`
+	test("annotates later rename export of already exported function expression", () => {
+		const code = js`
 			"use server";
 			export const sayHello = function(a) {
 				return "Hello, " + a + "!";
 			};
 			export { sayHello as sayHello2 };
 		`;
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = function(a) {
 					return "Hello, " + a + "!";
 				};
 				export { sayHello as sayHello2 };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export function expression while ignoring local", () => {
-    const code = js`
+	test("annotates direct export function expression while ignoring local", () => {
+		const code = js`
 			"use server";
 			const sayHelloLocal = function(a) {
 				return "Hello, " + a + "!";
@@ -587,9 +586,9 @@ describe("use server module function expressions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHelloLocal = function(a) {
 					return "Hello, " + a + "!";
@@ -598,12 +597,12 @@ describe("use server module function expressions", () => {
 					return sayHelloLocal(a);
 				};
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export function expression while ignoring function level", () => {
-    const code = js`
+	test("annotates direct export function expression while ignoring function level", () => {
+		const code = js`
 			"use server";
 			export const sayHello = function(a) {
 				const sayHelloLocal = function(a) {
@@ -613,9 +612,9 @@ describe("use server module function expressions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = function(a) {
 					const sayHelloLocal = function(a) {
@@ -624,12 +623,12 @@ describe("use server module function expressions", () => {
 					return sayHelloLocal(a);
 				};
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped function expression", () => {
-    const code = js`
+	test("hoists scoped function expression", () => {
+		const code = js`
 			import * as React from "react";
 			export const SayHello = function({ name }) {
 				const formAction = function() {
@@ -640,9 +639,9 @@ describe("use server module function expressions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -663,12 +662,12 @@ describe("use server module function expressions", () => {
 					);
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped function expression with multiple arguments", () => {
-    const code = js`
+	test("hoists scoped function expression with multiple arguments", () => {
+		const code = js`
 			import * as React from "react";
 			export const SayHello = function({ name, age }) {
 				const formAction = function() {
@@ -679,9 +678,9 @@ describe("use server module function expressions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -702,12 +701,12 @@ describe("use server module function expressions", () => {
 					);
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped function expression with no arguments", () => {
-    const code = js`
+	test("hoists scoped function expression with no arguments", () => {
+		const code = js`
 			import * as React from "react";
 			export const SayHello = function() {
 				const formAction = function() {
@@ -718,9 +717,9 @@ describe("use server module function expressions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
@@ -736,12 +735,12 @@ describe("use server module function expressions", () => {
 					const formAction = _$$INLINE_ACTION;
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists multiple scoped function expression", () => {
-    const code = js`
+	test("hoists multiple scoped function expression", () => {
+		const code = js`
 			import * as React from "react";
 
 			export const SayHello = function({ name, age }) {
@@ -772,9 +771,9 @@ describe("use server module function expressions", () => {
 			}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -806,34 +805,34 @@ describe("use server module function expressions", () => {
 						React.createElement("button", { formAction: _$$INLINE_ACTION2.bind(null, _wrapBoundArgs(() => [age])) }, "Say age")
 					);
 				}
-			`
-    );
-  });
+			`,
+		);
+	});
 });
 
 describe("use server function arrow functions", () => {
-  test("annotates direct export arrow function", () => {
-    const code = js`
+	test("annotates direct export arrow function", () => {
+		const code = js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
 					return "Hello, " + a + "!";
 				}
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later export arrow function", () => {
-    const code = js`
+	test("annotates later export arrow function", () => {
+		const code = js`
 			"use server";
 			const sayHello = (a) => {
 				return "Hello, " + a + "!";
@@ -841,42 +840,42 @@ describe("use server function arrow functions", () => {
 			export { sayHello };
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = (a) => {
 					return "Hello, " + a + "!";
 				}
 				export { sayHello };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates later rename export of already exported arrow function", () => {
-    const code = js`
+	test("annotates later rename export of already exported arrow function", () => {
+		const code = js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			};
 			export { sayHello as sayHello2 };
 		`;
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
 					return "Hello, " + a + "!";
 				};
 				export { sayHello as sayHello2 };
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export arrow function while ignoring local", () => {
-    const code = js`
+	test("annotates direct export arrow function while ignoring local", () => {
+		const code = js`
 			"use server";
 			const sayHelloLocal = (a) => {
 				return "Hello, " + a + "!";
@@ -884,21 +883,21 @@ describe("use server function arrow functions", () => {
 			export const sayHello = (a) => sayHelloLocal(a);
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHelloLocal = (a) => {
 					return "Hello, " + a + "!";
 				};
 				export const sayHello = (a) => sayHelloLocal(a);
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("annotates direct export arrow function while ignoring function level", () => {
-    const code = js`
+	test("annotates direct export arrow function while ignoring function level", () => {
+		const code = js`
 			"use server";
 			export const sayHello = (a) => {
 				const sayHelloLocal = (a) => {
@@ -908,9 +907,9 @@ describe("use server function arrow functions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
 					const sayHelloLocal = (a) => {
@@ -919,12 +918,12 @@ describe("use server function arrow functions", () => {
 					return sayHelloLocal(a);
 				};
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped arrow function", () => {
-    const code = js`
+	test("hoists scoped arrow function", () => {
+		const code = js`
 			import * as React from "react";
 			export const SayHello = ({ name }) => {
 				const formAction = () => {
@@ -935,9 +934,9 @@ describe("use server function arrow functions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
     		import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -958,12 +957,12 @@ describe("use server function arrow functions", () => {
 					);
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-    	`
-    );
-  });
+    	`,
+		);
+	});
 
-  test("hoists scoped arrow function with multiple arguments", () => {
-    const code = js`
+	test("hoists scoped arrow function with multiple arguments", () => {
+		const code = js`
 			import * as React from "react";
 			export const SayHello = ({ name, age }) => {
 				const formAction = () => {
@@ -974,9 +973,9 @@ describe("use server function arrow functions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -997,12 +996,12 @@ describe("use server function arrow functions", () => {
 					);
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-			`
-    );
-  });
+			`,
+		);
+	});
 
-  test("hoists scoped arrow function with no arguments", () => {
-    const code = js`
+	test("hoists scoped arrow function with no arguments", () => {
+		const code = js`
 			import * as React from "react";
 			export const SayHello = () => {
 				const formAction = () => {
@@ -1013,9 +1012,9 @@ describe("use server function arrow functions", () => {
 			};
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
     		import { $$server as _$$server } from "mwap/runtime/server";
     		import * as React from "react";
     		export const _$$INLINE_ACTION = _$$server(
@@ -1031,12 +1030,12 @@ describe("use server function arrow functions", () => {
     			const formAction = _$$INLINE_ACTION;
     			return React.createElement("button", { formAction }, "Say hello!");
     		};
-    	`
-    );
-  });
+    	`,
+		);
+	});
 
-  test("hoists multiple scoped arrow functions", () => {
-    const code = js`
+	test("hoists multiple scoped arrow functions", () => {
+		const code = js`
 			import * as React from "react";
 
 			export function SayHello({ name, age }) {
@@ -1067,9 +1066,9 @@ describe("use server function arrow functions", () => {
 			}
 		`;
 
-    assertAST(
-      serverTransform(code, "use-server.js", transformOptions).code,
-      js`
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptions).code,
+			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
 				import * as React from "react";
@@ -1101,7 +1100,7 @@ describe("use server function arrow functions", () => {
 						React.createElement("button", { formAction: _$$INLINE_ACTION2.bind(null, _wrapBoundArgs(() => [age])) }, "Say age")
 					);
 				}
-			`
-    );
-  });
+			`,
+		);
+	});
 });
