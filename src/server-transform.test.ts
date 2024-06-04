@@ -35,6 +35,15 @@ const transformOptions: ServerTransformOptions = {
 	importServer: "$$server",
 };
 
+const transformOptionsWithEncryption: ServerTransformOptions = {
+	...transformOptions,
+	encryption: {
+		importSource: "mwap/runtime/server",
+		decryptFn: "decrypt",
+		encryptFn: "encrypt",
+	},
+};
+
 const wrapBoundArgs = js`
 	var _wrapBoundArgs = thunk => {
 		let cache = undefined;
@@ -1100,6 +1109,45 @@ describe("use server function arrow functions", () => {
 						React.createElement("button", { formAction: _$$INLINE_ACTION2.bind(null, _wrapBoundArgs(() => [age])) }, "Say age")
 					);
 				}
+			`,
+		);
+	});
+});
+
+describe("use server variable encryption", () => {
+	test("hoists scoped arrow function", () => {
+		const code = js`
+			import * as React from "react";
+			export const SayHello = ({ name }) => {
+				const formAction = () => {
+					"use server";
+					console.log(name);
+				}
+				return React.createElement("button", { formAction }, "Say hello!");
+			};
+		`;
+
+		assertAST(
+			serverTransform(code, "use-server.js", transformOptionsWithEncryption)
+				.code,
+			js`
+			import { decrypt as _decrypt, encrypt as _encrypt, $$server as _$$server } from "mwap/runtime/server";
+			${wrapBoundArgs}
+			import * as React from "react";
+			export const _$$INLINE_ACTION = _$$server(async _$$CLOSURE => {
+				var [name] = await _decrypt(await _$$CLOSURE.value, "use server:use-server.js", "_$$INLINE_ACTION");
+				{
+					console.log(name);
+				}
+			}, "use server:use-server.js", "_$$INLINE_ACTION");
+			export const SayHello = ({
+				name
+			}) => {
+				const formAction = _$$INLINE_ACTION.bind(null, _wrapBoundArgs(() => _encrypt([name], "use server:use-server.js", "_$$INLINE_ACTION")));
+				return React.createElement("button", {
+					formAction
+				}, "Say hello!");
+			};		
 			`,
 		);
 	});

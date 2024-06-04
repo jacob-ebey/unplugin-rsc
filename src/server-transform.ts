@@ -27,6 +27,11 @@ export type ServerTransformOptions = {
 	importClient: string;
 	importFrom: string;
 	importServer: string;
+	encryption?: {
+		importSource: string;
+		decryptFn: string;
+		encryptFn: string;
+	};
 };
 
 const LAZY_WRAPPER_VALUE_KEY = "value";
@@ -52,7 +57,13 @@ const buildLazyWrapperHelper = () => {
 export function serverTransform(
 	code: string,
 	filename: string,
-	{ id: _id, importClient, importFrom, importServer }: ServerTransformOptions,
+	{
+		encryption,
+		id: _id,
+		importClient,
+		importFrom,
+		importServer,
+	}: ServerTransformOptions,
 ): TransformResult {
 	const onceCache = new Map<string, unknown>();
 	function once<T>(key: string, todo: () => T) {
@@ -63,9 +74,6 @@ export function serverTransform(
 		onceCache.set(key, r);
 		return r;
 	}
-
-	const id = (directive: "use client" | "use server") =>
-		once(`id:${filename}:${directive}`, () => _id(filename, directive));
 
 	let didSkip = false;
 	let moduleUseClient = false;
@@ -103,6 +111,36 @@ export function serverTransform(
 
 				let _file: BabelFile;
 				let defineBoundArgsWrapperHelper: () => Babel.Identifier;
+
+				const id = (directive: "use client" | "use server") =>
+					once(`id:${filename}:${directive}`, () => _id(filename, directive));
+
+				const addCryptImport = (): {
+					decryptFn: Babel.Identifier;
+					encryptFn: Babel.Identifier;
+				} | null => {
+					if (!encryption) return null;
+					return {
+						decryptFn: once(
+							`import { ${encryption.decryptFn} } from "${encryption.importSource}"`,
+							() =>
+								addNamedImport(
+									_file.path,
+									encryption.decryptFn,
+									encryption.importSource,
+								),
+						),
+						encryptFn: once(
+							`import { ${encryption.encryptFn} } from "${encryption.importSource}"`,
+							() =>
+								addNamedImport(
+									_file.path,
+									encryption.encryptFn,
+									encryption.importSource,
+								),
+						),
+					};
+				};
 
 				return {
 					name: "rsc-server-transform",
@@ -279,9 +317,7 @@ export function serverTransform(
 							if (!tlb && hasUseServerDirective(path)) {
 								const vars = getNonLocalVariables(path);
 								const { getReplacement } = extractInlineActionToTopLevel(path, {
-									addCryptImport() {
-										return null;
-									},
+									addCryptImport,
 									addRSDServerImport() {
 										return once(
 											`import { ${importServer} } from "${importFrom}"`,
@@ -315,9 +351,7 @@ export function serverTransform(
 								const vars = getNonLocalVariables(path);
 								const { extractedIdentifier, getReplacement } =
 									extractInlineActionToTopLevel(path, {
-										addCryptImport() {
-											return null;
-										},
+										addCryptImport,
 										addRSDServerImport() {
 											return once(
 												`import { ${importServer} } from "${importFrom}"`,
@@ -382,9 +416,7 @@ export function serverTransform(
 							if (!tlb && hasUseServerDirective(path)) {
 								const vars = getNonLocalVariables(path);
 								const { getReplacement } = extractInlineActionToTopLevel(path, {
-									addCryptImport() {
-										return null;
-									},
+									addCryptImport,
 									addRSDServerImport() {
 										return once(
 											`import { ${importServer} } from "${importFrom}"`,

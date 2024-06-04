@@ -1,6 +1,6 @@
 {
 	"name": "unplugin-rsc",
-	"version": "0.0.10",
+	"version": "0.0.11",
 	"description": "An unplugin for framework authors to implement RSC on top of.",
 	"type": "module",
 	"files": [
