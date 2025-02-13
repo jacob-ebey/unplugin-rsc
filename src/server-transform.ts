@@ -1,26 +1,15 @@
 // Adapted from @lubieowoce https://github.com/lubieowoce/tangle/blob/main/packages/babel-rsc/src/babel-rsc-actions.ts
 
-import type {
-	BabelFile,
-	BabelFileResult,
-	NodePath,
-	PluginObj,
-} from "@babel/core";
-import { template, transform } from "@babel/core";
+import type { NodePath, ParseResult } from "@babel/core";
+import { types as t, template, traverse } from "@babel/core";
 import { addNamed as addNamedImport } from "@babel/helper-module-imports";
-import type { BabelAPI } from "@babel/helper-plugin-utils";
-import type { Scope } from "@babel/traverse";
-import type * as Babel from "@babel/types";
 
 type FnPath =
-	| NodePath<Babel.ArrowFunctionExpression>
-	| NodePath<Babel.FunctionDeclaration>
-	| NodePath<Babel.FunctionExpression>;
+	| NodePath<t.ArrowFunctionExpression>
+	| NodePath<t.FunctionDeclaration>
+	| NodePath<t.FunctionExpression>;
 
-export type TransformResult = {
-	code: string;
-	map?: BabelFileResult["map"];
-};
+type Scope = NodePath["scope"];
 
 export type ServerTransformOptions = {
 	id(filename: string, directive: "use client" | "use server"): string;
@@ -51,11 +40,11 @@ const _buildLazyWrapperHelper = template(`(thunk) => {
 }`);
 
 const buildLazyWrapperHelper = () => {
-	return (_buildLazyWrapperHelper({}) as Babel.ExpressionStatement).expression;
+	return (_buildLazyWrapperHelper({}) as t.ExpressionStatement).expression;
 };
 
 export function serverTransform(
-	code: string,
+	ast: ParseResult,
 	filename: string,
 	{
 		encryption,
@@ -64,7 +53,7 @@ export function serverTransform(
 		importFrom,
 		importServer,
 	}: ServerTransformOptions,
-): TransformResult {
+): void {
 	const onceCache = new Map<string, unknown>();
 	function once<T>(key: string, todo: () => T) {
 		if (onceCache.has(key)) {
@@ -75,387 +64,333 @@ export function serverTransform(
 		return r;
 	}
 
-	let didSkip = false;
+	let programPath: NodePath<t.Program>;
 	let moduleUseClient = false;
 	let moduleUseServer = false;
 	let hasUseServer = false;
 	const namedExports = new Map<string, string>();
 	const topLevelFunctions = new Set<string>();
 
-	const parsed = transform(code, {
-		configFile: false,
-		filename,
-		plugins: [
-			(api: BabelAPI): PluginObj => {
-				const { types: t } = api;
+	const hasUseServerDirective = (path: FnPath) => {
+		const { body } = path.node;
+		if (!t.isBlockStatement(body)) {
+			return false;
+		}
+		if (
+			!(
+				body.directives.length >= 1 &&
+				body.directives.some((d) => d.value.value === "use server")
+			)
+		) {
+			return false;
+		}
+		// remove the use server directive
+		body.directives = body.directives.filter(
+			(d) => d.value.value !== "use server",
+		);
+		return true;
+	};
 
-				const hasUseServerDirective = (path: FnPath) => {
-					const { body } = path.node;
-					if (!t.isBlockStatement(body)) {
-						return false;
+	const defineBoundArgsWrapperHelper = () =>
+		once("defineBoundArgsWrapperHelper", () => {
+			const id = programPath.scope.generateUidIdentifier("wrapBoundArgs");
+			programPath.scope.push({
+				id,
+				kind: "var",
+				init: buildLazyWrapperHelper(),
+			});
+			return id;
+		});
+
+	const id = (directive: "use client" | "use server") =>
+		once(`id:${filename}:${directive}`, () => _id(filename, directive));
+
+	const addCryptImport = (): {
+		decryptFn: t.Identifier;
+		encryptFn: t.Identifier;
+	} | null => {
+		if (!encryption) return null;
+		return {
+			decryptFn: once(
+				`import { ${encryption.decryptFn} } from "${encryption.importSource}"`,
+				() =>
+					addNamedImport(
+						programPath,
+						encryption.decryptFn,
+						encryption.importSource,
+					),
+			),
+			encryptFn: once(
+				`import { ${encryption.encryptFn} } from "${encryption.importSource}"`,
+				() =>
+					addNamedImport(
+						programPath,
+						encryption.encryptFn,
+						encryption.importSource,
+					),
+			),
+		};
+	};
+
+	traverse(ast, {
+		Program(path) {
+			programPath = path;
+
+			for (const directive of path.node.directives) {
+				const value = directive.value.value;
+				switch (value) {
+					case "use client":
+						moduleUseClient = true;
+						break;
+					case "use server":
+						hasUseServer = moduleUseServer = true;
+						break;
+				}
+			}
+			if (moduleUseClient && moduleUseServer) {
+				throw new Error(
+					'Cannot have both "use client" and "use server" in the same module',
+				);
+			}
+			if (moduleUseServer) {
+				path.node.directives = path.node.directives.filter(
+					(d) => d.value.value !== "use server",
+				);
+			}
+			if (moduleUseClient) {
+				path.node.directives = path.node.directives.filter(
+					(d) => d.value.value !== "use client",
+				);
+			}
+		},
+		ExportDefaultDeclaration() {
+			if (!moduleUseClient) return false;
+			namedExports.set("default", "default");
+		},
+		ExportDefaultSpecifier() {
+			if (!moduleUseClient) return false;
+			namedExports.set("default", "default");
+		},
+		ExportNamedDeclaration(path) {
+			for (const specifier of path.node.specifiers) {
+				if (t.isExportSpecifier(specifier)) {
+					const exp = t.isIdentifier(specifier.exported)
+						? specifier.exported.name
+						: specifier.exported.value;
+					namedExports.set(exp, specifier.local.name);
+				}
+			}
+
+			if (t.isVariableDeclaration(path.node.declaration)) {
+				for (const declaration of path.node.declaration.declarations) {
+					if (t.isIdentifier(declaration.id)) {
+						namedExports.set(declaration.id.name, declaration.id.name);
 					}
-					if (
-						!(
-							body.directives.length >= 1 &&
-							body.directives.some((d) => d.value.value === "use server")
-						)
-					) {
-						return false;
-					}
-					// remove the use server directive
-					body.directives = body.directives.filter(
-						(d) => d.value.value !== "use server",
+				}
+			} else if (t.isFunctionDeclaration(path.node.declaration)) {
+				if (path.node.declaration.id) {
+					namedExports.set(
+						path.node.declaration.id.name,
+						path.node.declaration.id.name,
 					);
-					return true;
-				};
-
-				let _file: BabelFile;
-				let defineBoundArgsWrapperHelper: () => Babel.Identifier;
-
-				const id = (directive: "use client" | "use server") =>
-					once(`id:${filename}:${directive}`, () => _id(filename, directive));
-
-				const addCryptImport = (): {
-					decryptFn: Babel.Identifier;
-					encryptFn: Babel.Identifier;
-				} | null => {
-					if (!encryption) return null;
-					return {
-						decryptFn: once(
-							`import { ${encryption.decryptFn} } from "${encryption.importSource}"`,
-							() =>
-								addNamedImport(
-									_file.path,
-									encryption.decryptFn,
-									encryption.importSource,
-								),
-						),
-						encryptFn: once(
-							`import { ${encryption.encryptFn} } from "${encryption.importSource}"`,
-							() =>
-								addNamedImport(
-									_file.path,
-									encryption.encryptFn,
-									encryption.importSource,
-								),
-						),
-					};
-				};
-
-				return {
-					name: "rsc-server-transform",
-					pre(file) {
-						_file = file;
-						if (
-							!file.code.includes("use client") &&
-							!file.code.includes("use server")
-						) {
-							didSkip = true;
-							file.path.skip();
-							return;
-						}
-
-						defineBoundArgsWrapperHelper = () =>
-							once("defineBoundArgsWrapperHelper", () => {
-								const id =
-									this.file.path.scope.generateUidIdentifier("wrapBoundArgs");
-								this.file.path.scope.push({
-									id,
-									kind: "var",
-									init: buildLazyWrapperHelper(),
-								});
-								return id;
-							});
+				}
+			}
+		},
+		ArrowFunctionExpression(path) {
+			if (moduleUseClient) return false;
+			const tlb = getTopLevelBinding(path);
+			if (tlb && tlb.scope === path.scope.getProgramParent()) {
+				topLevelFunctions.add(tlb.identifier.name);
+			}
+			if (!tlb && hasUseServerDirective(path)) {
+				const vars = getNonLocalVariables(path);
+				const { getReplacement } = extractInlineActionToTopLevel(path, {
+					addCryptImport,
+					addRSDServerImport() {
+						return once(`import { ${importServer} } from "${importFrom}"`, () =>
+							addNamedImport(programPath, importServer, importFrom),
+						);
 					},
-					post(file) {
-						if (didSkip) return;
+					id: id("use server"),
+					vars: Array.from(vars),
+					wrapBoundArgs(expr) {
+						const wrapperFn = t.cloneNode(defineBoundArgsWrapperHelper());
+						return t.callExpression(wrapperFn, [
+							t.arrowFunctionExpression([], expr),
+						]);
+					},
+				});
 
-						if (moduleUseClient && hasUseServer) {
-							throw new Error(
-								'Cannot have both "use client" and "use server" in the same module',
+				path.replaceWith(getReplacement());
+			}
+		},
+		FunctionDeclaration(path) {
+			if (moduleUseClient) return false;
+			const tlb = getTopLevelBinding(path);
+			if (tlb && tlb.scope === path.scope.getProgramParent()) {
+				topLevelFunctions.add(tlb.identifier.name);
+			}
+			if (!tlb && hasUseServerDirective(path)) {
+				const vars = getNonLocalVariables(path);
+				const { extractedIdentifier, getReplacement } =
+					extractInlineActionToTopLevel(path, {
+						addCryptImport,
+						addRSDServerImport() {
+							return once(
+								`import { ${importServer} } from "${importFrom}"`,
+								() => addNamedImport(programPath, importServer, importFrom),
 							);
-						}
+						},
+						id: id("use server"),
+						vars: Array.from(vars),
+						wrapBoundArgs(expr) {
+							const wrapperFn = t.cloneNode(defineBoundArgsWrapperHelper());
+							return t.callExpression(wrapperFn, [
+								t.arrowFunctionExpression([], expr),
+							]);
+						},
+					});
 
-						if (moduleUseServer) {
-							for (const [publicName, localName] of namedExports) {
-								if (!topLevelFunctions.has(localName)) {
-									continue;
-								}
-								if (publicName === "default") {
-									throw new Error(
-										"Cannot use default export with 'use server' at module scope.",
-									);
-								}
+				const tlb = getTopLevelBinding(path);
+				const fnId = path.node.id;
+				if (!fnId) {
+					throw new Error("Expected a function with an id");
+				}
+				if (tlb) {
+					// we're at the top level, and we might be enclosed within a `export` decl.
+					// we have to keep the export in place, because it might be used elsewhere,
+					// so we can't just remove this node.
+					// replace the function decl with a (hopefully) equivalent var declaration
+					// `var [name] = $$INLINE_ACTION_{N}`
+					// TODO: this'll almost certainly break when using default exports,
+					// but tangle's build doesn't support those anyway
+					const bindingKind = "var";
+					const [inserted] = path.replaceWith(
+						t.variableDeclaration(bindingKind, [
+							t.variableDeclarator(fnId, extractedIdentifier),
+						]),
+					);
+					tlb.scope.registerBinding(bindingKind, inserted);
+				} else {
+					// note: if we do this *after* adding the new declaration, the bindings get messed up
+					path.remove();
+					// add a declaration in the place where the function decl would be hoisted to.
+					// (this avoids issues with functions defined after `return`, see `test-cases/named-after-return.jsx`)
+					path.scope.push({
+						id: fnId,
+						init: getReplacement(),
+						kind: "var",
+						unique: true,
+					});
+				}
+			}
+		},
+		FunctionExpression(path) {
+			if (moduleUseClient) return false;
+			const tlb = getTopLevelBinding(path);
+			if (tlb && tlb.scope === path.scope.getProgramParent()) {
+				topLevelFunctions.add(tlb.identifier.name);
+			}
 
-								once(`export:${localName}`, () => {
-									const toCall = once(
-										`import { ${importServer} } from "${importFrom}"`,
-										() => addNamedImport(file.path, importServer, importFrom),
-									);
-
-									file.ast.program.body.push(
-										t.expressionStatement(
-											t.callExpression(toCall, [
-												t.identifier(localName),
-												t.stringLiteral(id("use server")),
-												t.stringLiteral(publicName),
-											]),
-										),
-									);
-								});
-							}
-						} else if (moduleUseClient) {
-							file.ast.program.directives = file.ast.program.directives.filter(
-								(d) => d.value.value !== "use client",
-							);
-							file.ast.program.body = [];
-							for (const [publicName, localName] of namedExports) {
-								once(`export:${localName}`, () => {
-									const toCall = once(
-										`import { ${importClient} } from "${importFrom}"`,
-										() => addNamedImport(file.path, importClient, importFrom),
-									);
-
-									if (publicName === "default") {
-										file.ast.program.body.push(
-											t.exportDefaultDeclaration(
-												t.callExpression(toCall, [
-													t.objectExpression([]),
-													t.stringLiteral(id("use client")),
-													t.stringLiteral(publicName),
-												]),
-											),
-										);
-									} else {
-										file.ast.program.body.push(
-											t.exportNamedDeclaration(
-												t.variableDeclaration("const", [
-													t.variableDeclarator(
-														t.identifier(publicName),
-														t.callExpression(toCall, [
-															t.objectExpression([]),
-															t.stringLiteral(id("use client")),
-															t.stringLiteral(publicName),
-														]),
-													),
-												]),
-											),
-										);
-									}
-								});
-							}
-						}
+			if (!tlb && hasUseServerDirective(path)) {
+				const vars = getNonLocalVariables(path);
+				const { getReplacement } = extractInlineActionToTopLevel(path, {
+					addCryptImport,
+					addRSDServerImport() {
+						return once(`import { ${importServer} } from "${importFrom}"`, () =>
+							addNamedImport(programPath, importServer, importFrom),
+						);
 					},
-					visitor: {
-						Program(path) {
-							for (const directive of path.node.directives) {
-								const value = directive.value.value;
-								switch (value) {
-									case "use client":
-										moduleUseClient = true;
-										break;
-									case "use server":
-										hasUseServer = moduleUseServer = true;
-										break;
-								}
-							}
-							if (moduleUseClient && moduleUseServer) {
-								throw new Error(
-									'Cannot have both "use client" and "use server" in the same module',
-								);
-							}
-							if (moduleUseServer) {
-								path.node.directives = path.node.directives.filter(
-									(d) => d.value.value !== "use server",
-								);
-							}
-							if (moduleUseClient) {
-								path.node.directives = path.node.directives.filter(
-									(d) => d.value.value !== "use client",
-								);
-							}
-						},
-						ExportDefaultDeclaration() {
-							if (!moduleUseClient) return false;
-							namedExports.set("default", "default");
-						},
-						ExportDefaultSpecifier() {
-							if (!moduleUseClient) return false;
-							namedExports.set("default", "default");
-						},
-						ExportNamedDeclaration(path) {
-							for (const specifier of path.node.specifiers) {
-								if (t.isExportSpecifier(specifier)) {
-									const exp = t.isIdentifier(specifier.exported)
-										? specifier.exported.name
-										: specifier.exported.value;
-									namedExports.set(exp, specifier.local.name);
-								}
-							}
-
-							if (t.isVariableDeclaration(path.node.declaration)) {
-								for (const declaration of path.node.declaration.declarations) {
-									if (t.isIdentifier(declaration.id)) {
-										namedExports.set(declaration.id.name, declaration.id.name);
-									}
-								}
-							} else if (t.isFunctionDeclaration(path.node.declaration)) {
-								if (path.node.declaration.id) {
-									namedExports.set(
-										path.node.declaration.id.name,
-										path.node.declaration.id.name,
-									);
-								}
-							}
-						},
-						ArrowFunctionExpression(path) {
-							if (moduleUseClient) return false;
-							const tlb = getTopLevelBinding(path);
-							if (tlb && tlb.scope === path.scope.getProgramParent()) {
-								topLevelFunctions.add(tlb.identifier.name);
-							}
-							if (!tlb && hasUseServerDirective(path)) {
-								const vars = getNonLocalVariables(path);
-								const { getReplacement } = extractInlineActionToTopLevel(path, {
-									addCryptImport,
-									addRSDServerImport() {
-										return once(
-											`import { ${importServer} } from "${importFrom}"`,
-											() =>
-												addNamedImport(_file.path, importServer, importFrom),
-										);
-									},
-									api,
-									id: id("use server"),
-									vars: Array.from(vars),
-									wrapBoundArgs(expr) {
-										const wrapperFn = t.cloneNode(
-											defineBoundArgsWrapperHelper(),
-										);
-										return t.callExpression(wrapperFn, [
-											t.arrowFunctionExpression([], expr),
-										]);
-									},
-								});
-
-								path.replaceWith(getReplacement());
-							}
-						},
-						FunctionDeclaration(path) {
-							if (moduleUseClient) return false;
-							const tlb = getTopLevelBinding(path);
-							if (tlb && tlb.scope === path.scope.getProgramParent()) {
-								topLevelFunctions.add(tlb.identifier.name);
-							}
-							if (!tlb && hasUseServerDirective(path)) {
-								const vars = getNonLocalVariables(path);
-								const { extractedIdentifier, getReplacement } =
-									extractInlineActionToTopLevel(path, {
-										addCryptImport,
-										addRSDServerImport() {
-											return once(
-												`import { ${importServer} } from "${importFrom}"`,
-												() =>
-													addNamedImport(_file.path, importServer, importFrom),
-											);
-										},
-										api,
-										id: id("use server"),
-										vars: Array.from(vars),
-										wrapBoundArgs(expr) {
-											const wrapperFn = t.cloneNode(
-												defineBoundArgsWrapperHelper(),
-											);
-											return t.callExpression(wrapperFn, [
-												t.arrowFunctionExpression([], expr),
-											]);
-										},
-									});
-
-								const tlb = getTopLevelBinding(path);
-								const fnId = path.node.id;
-								if (!fnId) {
-									throw new Error("Expected a function with an id");
-								}
-								if (tlb) {
-									// we're at the top level, and we might be enclosed within a `export` decl.
-									// we have to keep the export in place, because it might be used elsewhere,
-									// so we can't just remove this node.
-									// replace the function decl with a (hopefully) equivalent var declaration
-									// `var [name] = $$INLINE_ACTION_{N}`
-									// TODO: this'll almost certainly break when using default exports,
-									// but tangle's build doesn't support those anyway
-									const bindingKind = "var";
-									const [inserted] = path.replaceWith(
-										t.variableDeclaration(bindingKind, [
-											t.variableDeclarator(fnId, extractedIdentifier),
-										]),
-									);
-									tlb.scope.registerBinding(bindingKind, inserted);
-								} else {
-									// note: if we do this *after* adding the new declaration, the bindings get messed up
-									path.remove();
-									// add a declaration in the place where the function decl would be hoisted to.
-									// (this avoids issues with functions defined after `return`, see `test-cases/named-after-return.jsx`)
-									path.scope.push({
-										id: fnId,
-										init: getReplacement(),
-										kind: "var",
-										unique: true,
-									});
-								}
-							}
-						},
-						FunctionExpression(path) {
-							if (moduleUseClient) return false;
-							const tlb = getTopLevelBinding(path);
-							if (tlb && tlb.scope === path.scope.getProgramParent()) {
-								topLevelFunctions.add(tlb.identifier.name);
-							}
-
-							if (!tlb && hasUseServerDirective(path)) {
-								const vars = getNonLocalVariables(path);
-								const { getReplacement } = extractInlineActionToTopLevel(path, {
-									addCryptImport,
-									addRSDServerImport() {
-										return once(
-											`import { ${importServer} } from "${importFrom}"`,
-											() =>
-												addNamedImport(_file.path, importServer, importFrom),
-										);
-									},
-									api,
-									id: id("use server"),
-									vars: Array.from(vars),
-									wrapBoundArgs(expr) {
-										const wrapperFn = t.cloneNode(
-											defineBoundArgsWrapperHelper(),
-										);
-										return t.callExpression(wrapperFn, [
-											t.arrowFunctionExpression([], expr),
-										]);
-									},
-								});
-
-								path.replaceWith(getReplacement());
-							}
-						},
+					id: id("use server"),
+					vars: Array.from(vars),
+					wrapBoundArgs(expr) {
+						const wrapperFn = t.cloneNode(defineBoundArgsWrapperHelper());
+						return t.callExpression(wrapperFn, [
+							t.arrowFunctionExpression([], expr),
+						]);
 					},
-				};
-			},
-		],
+				});
+
+				path.replaceWith(getReplacement());
+			}
+		},
 	});
 
-	if (!parsed) {
-		return {
-			code,
-		};
+	if (moduleUseClient && hasUseServer) {
+		throw new Error(
+			'Cannot have both "use client" and "use server" in the same module',
+		);
 	}
 
-	return {
-		code: parsed.code || code,
-		map: parsed.map,
-	};
+	if (moduleUseServer) {
+		for (const [publicName, localName] of namedExports) {
+			if (!topLevelFunctions.has(localName)) {
+				continue;
+			}
+			if (publicName === "default") {
+				throw new Error(
+					"Cannot use default export with 'use server' at module scope.",
+				);
+			}
+
+			once(`export:${localName}`, () => {
+				const toCall = once(
+					`import { ${importServer} } from "${importFrom}"`,
+					() => addNamedImport(programPath, importServer, importFrom),
+				);
+
+				ast.program.body.push(
+					t.expressionStatement(
+						t.callExpression(toCall, [
+							t.identifier(localName),
+							t.stringLiteral(id("use server")),
+							t.stringLiteral(publicName),
+						]),
+					),
+				);
+			});
+		}
+	} else if (moduleUseClient) {
+		ast.program.directives = ast.program.directives.filter(
+			(d) => d.value.value !== "use client",
+		);
+		ast.program.body = [];
+		for (const [publicName, localName] of namedExports) {
+			once(`export:${localName}`, () => {
+				const toCall = once(
+					`import { ${importClient} } from "${importFrom}"`,
+					() => addNamedImport(programPath, importClient, importFrom),
+				);
+
+				if (publicName === "default") {
+					ast.program.body.push(
+						t.exportDefaultDeclaration(
+							t.callExpression(toCall, [
+								t.objectExpression([]),
+								t.stringLiteral(id("use client")),
+								t.stringLiteral(publicName),
+							]),
+						),
+					);
+				} else {
+					ast.program.body.push(
+						t.exportNamedDeclaration(
+							t.variableDeclaration("const", [
+								t.variableDeclarator(
+									t.identifier(publicName),
+									t.callExpression(toCall, [
+										t.objectExpression([]),
+										t.stringLiteral(id("use client")),
+										t.stringLiteral(publicName),
+									]),
+								),
+							]),
+						),
+					);
+				}
+			});
+		}
+	}
 }
 
 function getNonLocalVariables(path: FnPath) {
@@ -567,33 +502,27 @@ function getTopLevelBinding(path: FnPath) {
 
 function extractInlineActionToTopLevel(
 	path: NodePath<
-		| Babel.ArrowFunctionExpression
-		| Babel.FunctionDeclaration
-		| Babel.FunctionExpression
+		t.ArrowFunctionExpression | t.FunctionDeclaration | t.FunctionExpression
 	>,
 	ctx: {
 		addCryptImport(): {
-			decryptFn: Babel.Identifier;
-			encryptFn: Babel.Identifier;
+			decryptFn: t.Identifier;
+			encryptFn: t.Identifier;
 		} | null;
-		addRSDServerImport(): Babel.Identifier;
-		api: BabelAPI;
+		addRSDServerImport(): t.Identifier;
 		id: string;
 		vars: string[];
-		wrapBoundArgs(boundArgs: Babel.Expression): Babel.Expression;
+		wrapBoundArgs(boundArgs: t.Expression): t.Expression;
 	},
 ) {
-	const { addCryptImport, addRSDServerImport, api, id, vars } = ctx;
-	const { types: t } = api;
+	const { addCryptImport, addRSDServerImport, id, vars } = ctx;
 
 	const moduleScope = path.scope.getProgramParent();
 	const extractedIdentifier =
 		moduleScope.generateUidIdentifier("$$INLINE_ACTION");
 
 	let extractedFunctionParams = [...path.node.params];
-	let extractedFunctionBody: Babel.Statement[] = [
-		path.node.body,
-	] as Babel.Statement[];
+	let extractedFunctionBody: t.Statement[] = [path.node.body] as t.Statement[];
 
 	if (vars.length > 0) {
 		// only add a closure object if we're not closing over anything.
@@ -630,7 +559,7 @@ function extractInlineActionToTopLevel(
 		];
 	}
 
-	const wrapInRegister = (expr: Babel.Expression, exportedName: string) => {
+	const wrapInRegister = (expr: t.Expression, exportedName: string) => {
 		const registerServerReferenceId = addRSDServerImport();
 
 		return t.callExpression(registerServerReferenceId, [
@@ -678,30 +607,26 @@ function extractInlineActionToTopLevel(
 }
 
 function getInlineActionReplacement(
-	actionId: Babel.Identifier,
+	actionId: t.Identifier,
 	vars: string[],
 	{
 		addCryptImport,
-		api,
 		id,
 		wrapBoundArgs,
 	}: {
 		addCryptImport(): {
-			decryptFn: Babel.Identifier;
-			encryptFn: Babel.Identifier;
+			decryptFn: t.Identifier;
+			encryptFn: t.Identifier;
 		} | null;
-		addRSDServerImport(): Babel.Identifier;
-		api: BabelAPI;
+		addRSDServerImport(): t.Identifier;
 		id: string;
-		wrapBoundArgs(boundArgs: Babel.Expression): Babel.Expression;
+		wrapBoundArgs(boundArgs: t.Expression): t.Expression;
 	},
 ) {
 	if (vars.length === 0) {
 		return actionId;
 	}
 	const encryption = addCryptImport();
-
-	const { types: t } = api;
 
 	const capturedVarsExpr = t.arrayExpression(
 		vars.map((variable) => t.identifier(variable)),

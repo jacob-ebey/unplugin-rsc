@@ -1,31 +1,36 @@
 import * as assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import type { ParseResult } from "@babel/core";
 import { parse } from "@babel/core";
+import _generate from "@babel/generator";
 
 import type { ServerTransformOptions } from "./server-transform.js";
 import { serverTransform } from "./server-transform.js";
 
+const generate = _generate.default;
 const js = String.raw;
 
-function assertAST(actual: string, expected: string, log?: boolean) {
-	function replacer(key: string, value: unknown) {
-		if (key === "start" || key === "end" || key === "loc") {
-			return undefined;
-		}
-		return value;
+function assertAST(
+	actual: string | ParseResult,
+	expected: string | ParseResult,
+	log?: boolean,
+) {
+	function generateCode(code: string | ParseResult) {
+		const ast = typeof code === "string" ? parse(code) : code;
+		return generate(ast).code;
 	}
+
+	const actualCode = generateCode(actual);
+	const expectedCode = generateCode(expected);
 
 	if (log) {
 		console.log("---------- ACTUAL ----------");
-		console.log(actual);
+		console.log(actualCode);
 		console.log("----------------------------");
 	}
 
-	assert.deepEqual(
-		JSON.parse(JSON.stringify(parse(actual)?.program, replacer)),
-		JSON.parse(JSON.stringify(parse(expected)?.program, replacer)),
-	);
+	assert.deepEqual(actualCode, expectedCode);
 }
 
 const transformOptions: ServerTransformOptions = {
@@ -60,7 +65,7 @@ const wrapBoundArgs = js`
 
 describe("use client replaces modules", () => {
 	test("with annotated exports", () => {
-		const code = js`
+		const ast = parse(js`
 			"use client";
 			import { Imported } from "third-party-imported";
 			export { Exported } from "third-party-exported";
@@ -69,10 +74,12 @@ describe("use client replaces modules", () => {
 			export const functionDeclaration = function functionDeclaration() {};
 			export function Component() {}
 			export default function DefaultComponent() {}
-		`;
+		`);
+
+		serverTransform(ast, "use-client.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-client.js", transformOptions).code,
+			ast,
 			js`
 				import { $$client as _$$client } from "mwap/runtime/server";
 				export const Exported = _$$client({}, "use client:use-client.js", "Exported");
@@ -88,15 +95,17 @@ describe("use client replaces modules", () => {
 
 describe("use server module arrow functions", () => {
 	test("annotates direct export arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			}
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
@@ -108,16 +117,18 @@ describe("use server module arrow functions", () => {
 	});
 
 	test("annotates later export arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			}
 			export { sayHello };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = (a) => {
@@ -130,16 +141,18 @@ describe("use server module arrow functions", () => {
 	});
 
 	test("annotates later rename export arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			}
 			export { sayHello as sayHello2 };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = (a) => {
@@ -152,15 +165,18 @@ describe("use server module arrow functions", () => {
 	});
 
 	test("annotates later rename export of already exported arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			};
 			export { sayHello as sayHello2 };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
+
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
@@ -173,16 +189,18 @@ describe("use server module arrow functions", () => {
 	});
 
 	test("annotates direct export arrow function while ignoring local", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			const sayHelloLocal = (a) => {
 				return "Hello, " + a + "!";
 			};
 			export const sayHello = (a) => sayHelloLocal(a);
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHelloLocal = (a) => {
@@ -195,7 +213,7 @@ describe("use server module arrow functions", () => {
 	});
 
 	test("annotates direct export arrow function while ignoring function level", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = (a) => {
 				const sayHelloLocal = (a) => {
@@ -203,10 +221,12 @@ describe("use server module arrow functions", () => {
 				};
 				return sayHelloLocal(a);
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
@@ -223,15 +243,17 @@ describe("use server module arrow functions", () => {
 
 describe("use server module function declarations", () => {
 	test("annotates direct export function declaration", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export function sayHello(a) {
 				return "Hello, " + a + "!";
 			}
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export function sayHello(a) {
@@ -243,16 +265,18 @@ describe("use server module function declarations", () => {
 	});
 
 	test("annotates later export function declaration", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			function sayHello(a) {
 				return "Hello, " + a + "!";
 			}
 			export { sayHello };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				function sayHello(a) {
@@ -265,15 +289,18 @@ describe("use server module function declarations", () => {
 	});
 
 	test("annotates later rename export of already exported function declaration", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export function sayHello(a) {
 				return "Hello, " + a + "!";
 			}
 			export { sayHello as sayHello2 };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
+
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export function sayHello(a) {
@@ -286,7 +313,7 @@ describe("use server module function declarations", () => {
 	});
 
 	test("annotates direct export function declaration while ignoring local", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			function sayHelloLocal(a) {
 				return "Hello, " + a + "!";
@@ -294,10 +321,12 @@ describe("use server module function declarations", () => {
 			export function sayHello(a) {
 				return sayHelloLocal(a);
 			}
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				function sayHelloLocal(a) {
@@ -312,7 +341,7 @@ describe("use server module function declarations", () => {
 	});
 
 	test("annotates direct export function declaration while ignoring function level", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export function sayHello(a) {
 				function sayHelloLocal(a) {
@@ -320,10 +349,12 @@ describe("use server module function declarations", () => {
 				};
 				return sayHelloLocal(a);
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export function sayHello(a) {
@@ -338,7 +369,7 @@ describe("use server module function declarations", () => {
 	});
 
 	test("hoists scoped function declaration", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export function SayHello({ name }) {
 				function formAction() {
@@ -347,13 +378,15 @@ describe("use server module function declarations", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
 					async _$$CLOSURE => {
@@ -377,7 +410,7 @@ describe("use server module function declarations", () => {
 	});
 
 	test("hoists scoped function declaration with multiple arguments", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export function SayHello({ name, age }) {
 				function formAction() {
@@ -386,13 +419,15 @@ describe("use server module function declarations", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
 					async _$$CLOSURE => {
@@ -415,8 +450,49 @@ describe("use server module function declarations", () => {
 		);
 	});
 
+	test("hoists scoped function declaration with argument and closure", () => {
+		const ast = parse(js`
+			import * as React from "react";
+			export function SayHello({ name, age }) {
+				function formAction(formData) {
+					"use server";
+					console.log({ name, age, formData });
+				}
+				return React.createElement("button", { formAction }, "Say hello!");
+			};
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
+
+		assertAST(
+			ast,
+			js`
+				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
+				import * as React from "react";
+				export const _$$INLINE_ACTION = _$$server(
+					async (_$$CLOSURE, formData) => {
+						var [name, age] = _$$CLOSURE.value;
+						{
+							console.log({ name, age, formData });
+						}
+					},
+					"use server:use-server.js",
+					"_$$INLINE_ACTION"
+				);
+				export function SayHello({ name, age }) {
+					var formAction = _$$INLINE_ACTION.bind(
+						null,
+						_wrapBoundArgs(() => [name, age])
+					);
+					return React.createElement("button", { formAction }, "Say hello!");
+				};
+			`,
+		);
+	});
+
 	test("hoists scoped function declaration with no arguments", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export function SayHello() {
 				function formAction() {
@@ -425,10 +501,12 @@ describe("use server module function declarations", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
@@ -450,7 +528,7 @@ describe("use server module function declarations", () => {
 	});
 
 	test("hoists multiple scoped function declaration", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 
 			export function SayHello({ name, age }) {
@@ -479,13 +557,15 @@ describe("use server module function declarations", () => {
 					)
 				);
 			}
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION2 = _$$server(
 					async _$$CLOSURE2 => {
@@ -522,15 +602,17 @@ describe("use server module function declarations", () => {
 
 describe("use server module function expressions", () => {
 	test("annotates direct export function expression", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = function(a) {
 				return "Hello, " + a + "!";
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = function(a) {
@@ -542,16 +624,18 @@ describe("use server module function expressions", () => {
 	});
 
 	test("annotates later export function expression", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			const sayHello = function(a) {
 				return "Hello, " + a + "!";
 			};
 			export { sayHello };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = function(a) {
@@ -564,15 +648,18 @@ describe("use server module function expressions", () => {
 	});
 
 	test("annotates later rename export of already exported function expression", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = function(a) {
 				return "Hello, " + a + "!";
 			};
 			export { sayHello as sayHello2 };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
+
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = function(a) {
@@ -585,7 +672,7 @@ describe("use server module function expressions", () => {
 	});
 
 	test("annotates direct export function expression while ignoring local", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			const sayHelloLocal = function(a) {
 				return "Hello, " + a + "!";
@@ -593,10 +680,12 @@ describe("use server module function expressions", () => {
 			export const sayHello = function(a) {
 				return sayHelloLocal(a);
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHelloLocal = function(a) {
@@ -611,7 +700,7 @@ describe("use server module function expressions", () => {
 	});
 
 	test("annotates direct export function expression while ignoring function level", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = function(a) {
 				const sayHelloLocal = function(a) {
@@ -619,10 +708,12 @@ describe("use server module function expressions", () => {
 				};
 				return sayHelloLocal(a);
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = function(a) {
@@ -632,12 +723,12 @@ describe("use server module function expressions", () => {
 					return sayHelloLocal(a);
 				};
 				_$$server(sayHello, "use server:use-server.js", "sayHello");
-			`,
+				`,
 		);
 	});
 
 	test("hoists scoped function expression", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export const SayHello = function({ name }) {
 				const formAction = function() {
@@ -646,13 +737,15 @@ describe("use server module function expressions", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
 					async _$$CLOSURE => {
@@ -676,7 +769,7 @@ describe("use server module function expressions", () => {
 	});
 
 	test("hoists scoped function expression with multiple arguments", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export const SayHello = function({ name, age }) {
 				const formAction = function() {
@@ -685,13 +778,15 @@ describe("use server module function expressions", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
 					async _$$CLOSURE => {
@@ -715,7 +810,7 @@ describe("use server module function expressions", () => {
 	});
 
 	test("hoists scoped function expression with no arguments", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export const SayHello = function() {
 				const formAction = function() {
@@ -724,10 +819,12 @@ describe("use server module function expressions", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
@@ -749,7 +846,7 @@ describe("use server module function expressions", () => {
 	});
 
 	test("hoists multiple scoped function expression", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 
 			export const SayHello = function({ name, age }) {
@@ -778,13 +875,15 @@ describe("use server module function expressions", () => {
 					)
 				);
 			}
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION2 = _$$server(
 					async _$$CLOSURE2 => {
@@ -821,15 +920,17 @@ describe("use server module function expressions", () => {
 
 describe("use server function arrow functions", () => {
 	test("annotates direct export arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			}
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
@@ -841,16 +942,18 @@ describe("use server function arrow functions", () => {
 	});
 
 	test("annotates later export arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			}
 			export { sayHello };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHello = (a) => {
@@ -863,15 +966,18 @@ describe("use server function arrow functions", () => {
 	});
 
 	test("annotates later rename export of already exported arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = (a) => {
 				return "Hello, " + a + "!";
 			};
 			export { sayHello as sayHello2 };
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
+
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
@@ -884,16 +990,18 @@ describe("use server function arrow functions", () => {
 	});
 
 	test("annotates direct export arrow function while ignoring local", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			const sayHelloLocal = (a) => {
 				return "Hello, " + a + "!";
 			};
 			export const sayHello = (a) => sayHelloLocal(a);
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				const sayHelloLocal = (a) => {
@@ -906,7 +1014,7 @@ describe("use server function arrow functions", () => {
 	});
 
 	test("annotates direct export arrow function while ignoring function level", () => {
-		const code = js`
+		const ast = parse(js`
 			"use server";
 			export const sayHello = (a) => {
 				const sayHelloLocal = (a) => {
@@ -914,10 +1022,12 @@ describe("use server function arrow functions", () => {
 				};
 				return sayHelloLocal(a);
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
 				import { $$server as _$$server } from "mwap/runtime/server";
 				export const sayHello = (a) => {
@@ -932,7 +1042,7 @@ describe("use server function arrow functions", () => {
 	});
 
 	test("hoists scoped arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export const SayHello = ({ name }) => {
 				const formAction = () => {
@@ -941,13 +1051,15 @@ describe("use server function arrow functions", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-    		import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
 					async _$$CLOSURE => {
@@ -959,19 +1071,19 @@ describe("use server function arrow functions", () => {
 					"use server:use-server.js",
 					"_$$INLINE_ACTION"
 				);
-    		export const SayHello = ({ name }) => {
+				export const SayHello = ({ name }) => {
 					const formAction = _$$INLINE_ACTION.bind(
 						null,
 						_wrapBoundArgs(() => [name])
 					);
 					return React.createElement("button", { formAction }, "Say hello!");
 				};
-    	`,
+			`,
 		);
 	});
 
 	test("hoists scoped arrow function with multiple arguments", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export const SayHello = ({ name, age }) => {
 				const formAction = () => {
@@ -980,13 +1092,15 @@ describe("use server function arrow functions", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION = _$$server(
 					async _$$CLOSURE => {
@@ -1010,7 +1124,7 @@ describe("use server function arrow functions", () => {
 	});
 
 	test("hoists scoped arrow function with no arguments", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export const SayHello = () => {
 				const formAction = () => {
@@ -1019,10 +1133,12 @@ describe("use server function arrow functions", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
     		import { $$server as _$$server } from "mwap/runtime/server";
     		import * as React from "react";
@@ -1044,7 +1160,7 @@ describe("use server function arrow functions", () => {
 	});
 
 	test("hoists multiple scoped arrow functions", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 
 			export function SayHello({ name, age }) {
@@ -1073,13 +1189,15 @@ describe("use server function arrow functions", () => {
 					)
 				);
 			}
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptions);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptions).code,
+			ast,
 			js`
-				import { $$server as _$$server } from "mwap/runtime/server";
 				${wrapBoundArgs}
+				import { $$server as _$$server } from "mwap/runtime/server";
 				import * as React from "react";
 				export const _$$INLINE_ACTION2 = _$$server(
 					async _$$CLOSURE2 => {
@@ -1116,7 +1234,7 @@ describe("use server function arrow functions", () => {
 
 describe("use server variable encryption", () => {
 	test("hoists scoped arrow function", () => {
-		const code = js`
+		const ast = parse(js`
 			import * as React from "react";
 			export const SayHello = ({ name }) => {
 				const formAction = () => {
@@ -1125,14 +1243,15 @@ describe("use server variable encryption", () => {
 				}
 				return React.createElement("button", { formAction }, "Say hello!");
 			};
-		`;
+		`);
+
+		serverTransform(ast, "use-server.js", transformOptionsWithEncryption);
 
 		assertAST(
-			serverTransform(code, "use-server.js", transformOptionsWithEncryption)
-				.code,
+			ast,
 			js`
-			import { decrypt as _decrypt, encrypt as _encrypt, $$server as _$$server } from "mwap/runtime/server";
 			${wrapBoundArgs}
+			import { decrypt as _decrypt, encrypt as _encrypt, $$server as _$$server } from "mwap/runtime/server";
 			import * as React from "react";
 			export const _$$INLINE_ACTION = _$$server(async _$$CLOSURE => {
 				var [name] = await _decrypt(await _$$CLOSURE.value, "use server:use-server.js", "_$$INLINE_ACTION");
@@ -1147,8 +1266,8 @@ describe("use server variable encryption", () => {
 				return React.createElement("button", {
 					formAction
 				}, "Say hello!");
-			};		
-			`,
+			};
+		`,
 		);
 	});
 });
